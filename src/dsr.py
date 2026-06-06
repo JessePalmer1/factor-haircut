@@ -11,6 +11,8 @@ References
 Bailey & López de Prado (2014). The Deflated Sharpe Ratio. JPM.
 """
 
+import math
+
 import numpy as np
 from scipy.stats import norm
 
@@ -46,8 +48,9 @@ def psr(
     -------
     psr_value : float in (0, 1)
     """
-    # TODO: implement
-    raise NotImplementedError
+    se = math.sqrt(1 - skew * sr_hat + (kurt - 1) / 4 * sr_hat ** 2)
+    z = (sr_hat - sr_benchmark) * math.sqrt(T - 1) / se
+    return float(norm.cdf(z))
 
 
 def dsr_benchmark(
@@ -73,8 +76,10 @@ def dsr_benchmark(
     -------
     sr_star : float, the benchmark Sharpe
     """
-    # TODO: implement
-    raise NotImplementedError
+    scale = math.sqrt(sr_variance)
+    term1 = (1 - EULER_GAMMA) * norm.ppf(1 - 1 / n_trials)
+    term2 = EULER_GAMMA * norm.ppf(1 - 1 / (n_trials * math.e))
+    return float(scale * (term1 + term2))
 
 
 def deflated_sharpe(
@@ -105,5 +110,5 @@ def deflated_sharpe(
     -------
     dsr_value : float in (0, 1)
     """
-    # TODO: implement
-    raise NotImplementedError
+    sr_star = dsr_benchmark(n_trials, sr_variance)
+    return psr(sr_hat, T, skew, kurt, sr_star)
