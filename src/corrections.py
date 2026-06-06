@@ -33,8 +33,8 @@ def bonferroni(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     -------
     reject : bool array, same order as pvals
     """
-    # TODO: implement
-    raise NotImplementedError
+    p = np.asarray(pvals)
+    return p <= alpha / p.size
 
 
 def holm(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
@@ -51,8 +51,17 @@ def holm(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     -------
     reject : bool array, same order as pvals
     """
-    # TODO: implement
-    raise NotImplementedError
+    p = np.asarray(pvals)
+    m = p.size
+    order = np.argsort(p)
+    ranked = p[order]
+    thresholds = alpha / (m - np.arange(m))   # alpha/m, alpha/(m-1), ..., alpha/1
+    fails = ranked > thresholds
+    # stop at first failure; if none, reject everything
+    cutoff = int(np.argmax(fails)) if fails.any() else m
+    reject = np.zeros(m, dtype=bool)
+    reject[order[:cutoff]] = True
+    return reject
 
 
 def benjamini_hochberg(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
@@ -70,8 +79,17 @@ def benjamini_hochberg(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     -------
     reject : bool array, same order as pvals
     """
-    # TODO: implement
-    raise NotImplementedError
+    p = np.asarray(pvals)
+    m = p.size
+    order = np.argsort(p)
+    ranked = p[order]
+    thresholds = (np.arange(1, m + 1) / m) * alpha
+    below = ranked <= thresholds
+    # step-up: largest k where p_(k) passes; reject everything up to and including k
+    kmax = int(np.max(np.where(below)[0])) + 1 if below.any() else 0
+    reject = np.zeros(m, dtype=bool)
+    reject[order[:kmax]] = True
+    return reject
 
 
 def benjamini_yekutieli(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
@@ -89,8 +107,17 @@ def benjamini_yekutieli(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     -------
     reject : bool array, same order as pvals
     """
-    # TODO: implement
-    raise NotImplementedError
+    p = np.asarray(pvals)
+    m = p.size
+    order = np.argsort(p)
+    ranked = p[order]
+    c_m = np.sum(1.0 / np.arange(1, m + 1))
+    thresholds = (np.arange(1, m + 1) / (m * c_m)) * alpha
+    below = ranked <= thresholds
+    kmax = int(np.max(np.where(below)[0])) + 1 if below.any() else 0
+    reject = np.zeros(m, dtype=bool)
+    reject[order[:kmax]] = True
+    return reject
 
 
 def implied_threshold(m: int, alpha: float = 0.05, method: str = "bonferroni") -> float:
@@ -108,8 +135,9 @@ def implied_threshold(m: int, alpha: float = 0.05, method: str = "bonferroni") -
     -------
     t_star : float
     """
-    # TODO: implement
-    raise NotImplementedError
+    if method == "bonferroni":
+        return float(norm.ppf(1 - alpha / (2 * m)))
+    raise ValueError(f"Unknown method: {method!r}")
 
 
 def haircut(sr_original: float, sr_adjusted: float) -> float:
@@ -126,5 +154,4 @@ def haircut(sr_original: float, sr_adjusted: float) -> float:
     -------
     haircut : float in [0, 1]
     """
-    # TODO: implement
-    raise NotImplementedError
+    return 1.0 - sr_adjusted / sr_original

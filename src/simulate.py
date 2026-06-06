@@ -13,6 +13,7 @@ Simulation harness:
 """
 
 import numpy as np
+from scipy.stats import norm
 
 
 def generate_tstats(
@@ -39,8 +40,19 @@ def generate_tstats(
     tstats     : (m,) float array of t-statistics
     is_signal  : (m,) bool array — True where the factor is truly non-null
     """
-    # TODO: implement
-    raise NotImplementedError
+    rng = rng or np.random.default_rng()
+    m1 = int(round(pi1 * m))
+    m0 = m - m1
+    is_signal = np.zeros(m, dtype=bool)
+    is_signal[:m1] = True
+    tstats = np.empty(m)
+    if m1 > 0:
+        tstats[:m1] = rng.normal(loc=delta, scale=1.0, size=m1)
+    if m0 > 0:
+        tstats[m1:] = rng.normal(loc=0.0, scale=1.0, size=m0)
+    # shuffle so signal/null positions aren't always at the front
+    idx = rng.permutation(m)
+    return tstats[idx], is_signal[idx]
 
 
 def factor_covariance(
@@ -71,8 +83,12 @@ def factor_covariance(
     -------
     corr : (m, m) correlation matrix, valid PSD by construction
     """
-    # TODO: implement
-    raise NotImplementedError
+    rng = rng or np.random.default_rng()
+    B = rng.normal(size=(m, k)) * loading_scale
+    D = np.diag(rng.uniform(idio_low, idio_high, size=m))
+    Sigma = B @ B.T + D
+    d = np.sqrt(np.diag(Sigma))
+    return Sigma / np.outer(d, d)
 
 
 def mvt_draws(
@@ -100,8 +116,10 @@ def mvt_draws(
     -------
     draws : (m, n_reps) array
     """
-    # TODO: implement
-    raise NotImplementedError
+    m = L.shape[0]
+    z = rng.normal(size=(m, n_reps))
+    w = rng.chisquare(nu, size=n_reps)
+    return mu[:, None] + (L @ z) / np.sqrt(w / nu)
 
 
 def run_simulation(
@@ -130,5 +148,30 @@ def run_simulation(
     -------
     results : dict mapping correction name -> {"fwer": float, "fdr": float, "power": float}
     """
-    # TODO: implement
-    raise NotImplementedError
+    rng = rng or np.random.default_rng()
+    accum = {name: {"fwer_hits": 0, "fdr_sum": 0.0, "power_sum": 0.0}
+             for name in corrections}
+
+    for _ in range(n_reps):
+        tstats, is_signal = generate_tstats(m, pi1, delta, rng=rng)
+        pvals = 2 * (1 - norm.cdf(np.abs(tstats)))
+        n_signal = is_signal.sum()
+
+        for name, fn in corrections.items():
+            reject = fn(pvals, alpha)
+            false_rej = (reject & ~is_signal).sum()
+            true_rej = (reject & is_signal).sum()
+            total_rej = reject.sum()
+
+            accum[name]["fwer_hits"] += int(false_rej > 0)
+            accum[name]["fdr_sum"] += false_rej / total_rej if total_rej > 0 else 0.0
+            accum[name]["power_sum"] += true_rej / n_signal if n_signal > 0 else 0.0
+
+    return {
+        name: {
+            "fwer": v["fwer_hits"] / n_reps,
+            "fdr": v["fdr_sum"] / n_reps,
+            "power": v["power_sum"] / n_reps,
+        }
+        for name, v in accum.items()
+    }

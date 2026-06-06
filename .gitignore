@@ -1,0 +1,17 @@
+# theory notes — skipping for now
+notes/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# misc
+.DS_Store
