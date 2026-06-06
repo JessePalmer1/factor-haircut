@@ -1,5 +1,6 @@
-# theory notes — skipping for now
+# theory notes and notebooks — skipped
 notes/
+notebooks/
 
 # Python
 __pycache__/
