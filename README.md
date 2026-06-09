@@ -1,6 +1,6 @@
 # The Factor Zoo Haircut
 
-> **Given that hundreds of equity factors have been tested, what t-statistic does a factor *actually* need to be believable — and how many published factors survive that bar?**
+**Given that hundreds of equity factors have been tested, what t-statistic does a factor *actually* need to be believable — and how many published factors survive that bar?**
 
 Built an interactive factor "haircut" and Deflated Sharpe Ratio calculator (Python, NumPy/pandas, Streamlit) using Monte Carlo simulation with latent-factor correlation (Cholesky-induced) and fat-tailed returns plus Benjamini–Yekutieli false-discovery control, that showed **~48% of the 188 published equity factors** in the Chen–Zimmermann dataset fail to clear a Bonferroni-adjusted significance threshold (m = 600 assumed trials, t* = 3.93). Under the less conservative BY false-discovery rate control, **~21% fail**.
 
