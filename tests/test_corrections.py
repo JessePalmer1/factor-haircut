@@ -78,6 +78,41 @@ class TestBenjaminiYekutieli:
         assert rej_by.sum() <= rej_bh.sum()
 
 
+class TestAssumedM:
+    """
+    All three sequential corrections (Holm, BH, BY) must respond to an assumed
+    m > len(pvals) — the unobserved m - n tests are implicitly p ~= 1 and only
+    enter through the denominator (and, for BY, the harmonic constant c(m)).
+    """
+
+    def test_default_m_equals_observed_count(self):
+        p = _random_pvals(n=50)
+        assert np.array_equal(holm(p, ALPHA), holm(p, ALPHA, m=50))
+        assert np.array_equal(benjamini_hochberg(p, ALPHA), benjamini_hochberg(p, ALPHA, m=50))
+        assert np.array_equal(benjamini_yekutieli(p, ALPHA), benjamini_yekutieli(p, ALPHA, m=50))
+
+    def test_larger_assumed_m_is_more_conservative(self):
+        p = _random_pvals(n=50)
+        assert holm(p, ALPHA, m=500).sum() <= holm(p, ALPHA, m=50).sum()
+        assert benjamini_hochberg(p, ALPHA, m=500).sum() <= benjamini_hochberg(p, ALPHA, m=50).sum()
+        assert benjamini_yekutieli(p, ALPHA, m=500).sum() <= benjamini_yekutieli(p, ALPHA, m=50).sum()
+
+    def test_by_actually_uses_assumed_m(self):
+        # Regression test: BY previously ignored m entirely (bug), which made
+        # survive_by_{m} identical across every assumed m. Place one p-value
+        # strictly between the rank-1 threshold at m=50 and at m=2000.
+        c50 = np.sum(1.0 / np.arange(1, 51))
+        c2000 = np.sum(1.0 / np.arange(1, 2001))
+        thresh_50 = ALPHA / (50 * c50)
+        thresh_2000 = ALPHA / (2000 * c2000)
+        assert thresh_2000 < thresh_50
+
+        p = np.full(50, 0.9)
+        p[0] = (thresh_50 + thresh_2000) / 2
+        assert benjamini_yekutieli(p, ALPHA, m=50)[0] == True
+        assert benjamini_yekutieli(p, ALPHA, m=2000)[0] == False
+
+
 class TestImpliedThreshold:
     def test_bonferroni_single_test(self):
         # With m=1, threshold should equal the unadjusted critical value ~1.96

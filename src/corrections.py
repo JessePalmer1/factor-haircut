@@ -37,7 +37,7 @@ def bonferroni(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     return p <= alpha / p.size
 
 
-def holm(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
+def holm(pvals: np.ndarray, alpha: float = 0.05, m: int = None) -> np.ndarray:
     """
     Holm step-down correction (FWER).
     Sort ascending; reject p_(i) while p_(i) <= alpha / (m - i + 1); stop at first failure.
@@ -46,25 +46,31 @@ def holm(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     ----------
     pvals : array of p-values
     alpha : family-wise significance level
+    m     : assumed total number of tests (default: len(pvals), i.e. only the
+            observed tests). Pass an m larger than len(pvals) to account for
+            unobserved tests, which are implicitly treated as p ~= 1 — they
+            never get rejected, they only tighten the denominator.
 
     Returns
     -------
     reject : bool array, same order as pvals
     """
     p = np.asarray(pvals)
-    m = p.size
+    n = p.size
+    if m is None:
+        m = n
     order = np.argsort(p)
     ranked = p[order]
-    thresholds = alpha / (m - np.arange(m))   # alpha/m, alpha/(m-1), ..., alpha/1
+    thresholds = alpha / (m - np.arange(n))   # alpha/m, alpha/(m-1), ..., alpha/(m-n+1)
     fails = ranked > thresholds
     # stop at first failure; if none, reject everything
-    cutoff = int(np.argmax(fails)) if fails.any() else m
-    reject = np.zeros(m, dtype=bool)
+    cutoff = int(np.argmax(fails)) if fails.any() else n
+    reject = np.zeros(n, dtype=bool)
     reject[order[:cutoff]] = True
     return reject
 
 
-def benjamini_hochberg(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
+def benjamini_hochberg(pvals: np.ndarray, alpha: float = 0.05, m: int = None) -> np.ndarray:
     """
     Benjamini–Hochberg step-up correction (FDR).
     Find largest k such that p_(k) <= (k / m) * alpha; reject all up to rank k.
@@ -74,25 +80,31 @@ def benjamini_hochberg(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     ----------
     pvals : array of p-values
     alpha : false discovery rate level
+    m     : assumed total number of tests (default: len(pvals), i.e. only the
+            observed tests). Pass an m larger than len(pvals) to account for
+            unobserved tests, which are implicitly treated as p ~= 1 — they
+            never get rejected, they only tighten the denominator.
 
     Returns
     -------
     reject : bool array, same order as pvals
     """
     p = np.asarray(pvals)
-    m = p.size
+    n = p.size
+    if m is None:
+        m = n
     order = np.argsort(p)
     ranked = p[order]
-    thresholds = (np.arange(1, m + 1) / m) * alpha
+    thresholds = (np.arange(1, n + 1) / m) * alpha
     below = ranked <= thresholds
     # step-up: largest k where p_(k) passes; reject everything up to and including k
     kmax = int(np.max(np.where(below)[0])) + 1 if below.any() else 0
-    reject = np.zeros(m, dtype=bool)
+    reject = np.zeros(n, dtype=bool)
     reject[order[:kmax]] = True
     return reject
 
 
-def benjamini_yekutieli(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
+def benjamini_yekutieli(pvals: np.ndarray, alpha: float = 0.05, m: int = None) -> np.ndarray:
     """
     Benjamini–Yekutieli step-up correction (FDR under arbitrary dependence).
     Identical to BH but threshold is (k / (m * c(m))) * alpha,
@@ -102,20 +114,28 @@ def benjamini_yekutieli(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     ----------
     pvals : array of p-values
     alpha : false discovery rate level
+    m     : assumed total number of tests (default: len(pvals), i.e. only the
+            observed tests). Pass an m larger than len(pvals) to account for
+            unobserved tests: both the denominator and the harmonic constant
+            c(m) are computed over the full assumed m, not just the observed
+            count, since c(m) is a function of the total test count, not a
+            statistic of the observed sample.
 
     Returns
     -------
     reject : bool array, same order as pvals
     """
     p = np.asarray(pvals)
-    m = p.size
+    n = p.size
+    if m is None:
+        m = n
     order = np.argsort(p)
     ranked = p[order]
     c_m = np.sum(1.0 / np.arange(1, m + 1))
-    thresholds = (np.arange(1, m + 1) / (m * c_m)) * alpha
+    thresholds = (np.arange(1, n + 1) / (m * c_m)) * alpha
     below = ranked <= thresholds
     kmax = int(np.max(np.where(below)[0])) + 1 if below.any() else 0
-    reject = np.zeros(m, dtype=bool)
+    reject = np.zeros(n, dtype=bool)
     reject[order[:kmax]] = True
     return reject
 

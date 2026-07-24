@@ -19,12 +19,43 @@ import streamlit as st
 sys.path.insert(0, ".")
 from src.corrections import implied_threshold, haircut
 from src.dsr import deflated_sharpe, dsr_benchmark
+from src.simulate import mvt_draws
 from src.data import (
     load_published_factors,
     filter_by_predictability,
     compute_pvals,
     apply_corrections_sweep,
 )
+
+
+@st.cache_data(show_spinner="Simulating null distribution…")
+def simulate_null_max(m: int, rho_bar: float, nu: float, gaussian: bool, n_sim: int, seed: int = 42):
+    """
+    Monte Carlo null distribution of max_i |t_i| across m correlated,
+    possibly fat-tailed noise factors.
+
+    rho_bar induces exact one-factor equicorrelation via B = sqrt(rho_bar) * 1_m,
+    D = (1 - rho_bar) I, so Sigma = B @ B.T + D is PSD by construction and
+    Cholesky always succeeds. rho_bar=0 and gaussian=True reproduces the
+    iid-Gaussian null exactly (Sigma = I).
+    """
+    rng = np.random.default_rng(seed)
+    if rho_bar <= 0:
+        L = np.eye(m)
+    else:
+        B = np.sqrt(rho_bar) * np.ones((m, 1))
+        D = np.diag(np.full(m, 1.0 - rho_bar))
+        Sigma = B @ B.T + D
+        L = np.linalg.cholesky(Sigma)
+
+    mu = np.zeros(m)
+    if gaussian:
+        z = rng.normal(size=(m, n_sim))
+        draws = mu[:, None] + L @ z
+    else:
+        draws = mvt_draws(mu, L, nu, n_sim, rng)
+
+    return np.abs(draws).max(axis=0)
 
 st.set_page_config(page_title="Factor Zoo Haircut", layout="wide")
 st.title("The Factor Zoo Haircut")
@@ -55,6 +86,22 @@ with tab1:
         )
         alpha = st.select_slider(
             "Significance level α", options=[0.01, 0.05, 0.10], value=0.05,
+        )
+
+        st.divider()
+        st.subheader("Null distribution — correlation & tails")
+        rho_bar = st.slider(
+            "Average pairwise correlation ρ̄", 0.0, 0.8, 0.0, 0.05,
+            help="Factors rarely test independent ideas. Raising ρ̄ shrinks the "
+                 "effective number of independent trials, which pulls the null "
+                 "max distribution to the left of the iid case.",
+        )
+        gaussian_tails = st.checkbox("Gaussian tails (ν → ∞)", value=True)
+        nu = st.slider(
+            "Tail thickness ν (degrees of freedom)", 3, 30, 5, 1,
+            help="Lower ν = fatter tails = more extreme noise draws. Ignored "
+                 "when Gaussian tails is checked.",
+            disabled=gaussian_tails,
         )
 
         st.divider()
@@ -118,23 +165,24 @@ with tab1:
         # --- Null distribution plot ---
         st.markdown("**Null max-statistic distribution**")
         st.caption(
-            f"Distribution of the *maximum* t-stat across {m_trials} pure-noise tests. "
-            "Your factor is the vertical line."
+            f"Distribution of max|t| across {m_trials} pure-noise tests, correlated at "
+            f"ρ̄ = {rho_bar:.2f}"
+            + ("" if gaussian_tails else f" with Student-t(ν={nu}) tails")
+            + ". Your factor is the vertical line. Two-sided, matching the Bonferroni bar."
         )
 
-        rng = np.random.default_rng(42)
-        n_sim = 20_000
-        max_tstats = np.array([
-            rng.standard_normal(m_trials).max() for _ in range(n_sim)
-        ])
-        expected_max = np.sqrt(2 * np.log(m_trials))
+        # Correlation shrinks the effective number of independent trials, so it's
+        # a heavier simulation; drop n_sim on that path to keep the app responsive.
+        n_sim = 20_000 if (rho_bar == 0 and gaussian_tails) else 5_000
+        max_tstats = simulate_null_max(m_trials, rho_bar, nu, gaussian_tails, n_sim)
+        expected_max = np.sqrt(2 * np.log(2 * m_trials))
 
         fig, ax = plt.subplots(figsize=(6, 3))
-        ax.hist(max_tstats, bins=80, density=True, color="#4C72B0", alpha=0.75, label="Null max t-stat")
+        ax.hist(max_tstats, bins=80, density=True, color="#4C72B0", alpha=0.75, label="Null max |t|")
         ax.axvline(t_reported, color="#DD4444", linewidth=2, label=f"Your factor  t={t_reported:.2f}")
         ax.axvline(t_star, color="#228B22", linewidth=1.5, linestyle="--", label=f"Bonferroni t*={t_star:.2f}")
-        ax.axvline(expected_max, color="#FF8C00", linewidth=1, linestyle=":", label=f"E[max] ≈{expected_max:.2f}")
-        ax.set_xlabel("Max t-statistic across m noise tests")
+        ax.axvline(expected_max, color="#FF8C00", linewidth=1, linestyle=":", label=f"E[max] ≈{expected_max:.2f} (iid asymptotic)")
+        ax.set_xlabel("Max |t-statistic| across m noise tests")
         ax.set_ylabel("Density")
         ax.legend(fontsize=7)
         fig.tight_layout()
@@ -149,8 +197,9 @@ with tab2:
     st.subheader("Chen–Zimmermann published factors — multiple-testing survival")
     st.caption(
         "188 of the 212 published cross-sectional predictors have a reported t-stat. "
-        "Bonferroni uses an *assumed* total trial count m (including unpublished tests). "
-        "BY controls the false discovery rate within the 188 observed factors."
+        "All four corrections use the same *assumed* total trial count m (including "
+        "unpublished tests); the m - 188 unobserved tests are treated as p ≈ 1, so "
+        "they never get rejected — they only tighten each method's threshold."
     )
 
     @st.cache_data(show_spinner="Loading Chen–Zimmermann data…")
@@ -177,21 +226,30 @@ with tab2:
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Factors analysed", n_total)
     m2.metric(f"Bonferroni t* (m={m_sel})", f"{t_bar:.2f}")
-    m3.metric("Bonferroni survivors", f"{n_bonf} ({100*n_bonf//n_total}%)")
-    m4.metric("BY survivors (FDR 5%)", f"{n_by} ({100*n_by//n_total}%)")
+    m3.metric("Bonferroni survivors", f"{n_bonf} ({round(100*n_bonf/n_total)}%)")
+    m4.metric(f"BY survivors (m={m_sel})", f"{n_by} ({round(100*n_by/n_total)}%)")
 
     # --- Survival sensitivity chart ---
     st.markdown("**Survival rate vs assumed m**")
+    st.caption(
+        "Conservatism ordering: Bonferroni ≤ Holm ≤ BY ≤ BH. Only Bonferroni and "
+        "Holm control FWER (probability of *any* false discovery); BH and BY "
+        "control FDR (expected *fraction* of false discoveries)."
+    )
     bonf_counts = [int(results[f"survive_bonf_{m}"].sum()) for m in M_VALUES]
+    holm_counts = [int(results[f"survive_holm_{m}"].sum()) for m in M_VALUES]
+    bh_counts   = [int(results[f"survive_bh_{m}"].sum())   for m in M_VALUES]
     by_counts   = [int(results[f"survive_by_{m}"].sum())   for m in M_VALUES]
 
     fig2, ax2 = plt.subplots(figsize=(5, 2.8))
-    ax2.plot(M_VALUES, [100*c/n_total for c in bonf_counts], "o-", color="#DD4444", label="Bonferroni")
+    ax2.plot(M_VALUES, [100*c/n_total for c in bonf_counts], "o-",  color="#DD4444", label="Bonferroni (FWER)")
+    ax2.plot(M_VALUES, [100*c/n_total for c in holm_counts], "^-.", color="#55A868", label="Holm (FWER)")
     ax2.plot(M_VALUES, [100*c/n_total for c in by_counts],   "s--", color="#4C72B0", label="BY (FDR)")
+    ax2.plot(M_VALUES, [100*c/n_total for c in bh_counts],   "d:",  color="#8172B2", label="BH (FDR)")
     ax2.set_xlabel("Assumed total trials m")
     ax2.set_ylabel("% factors surviving")
     ax2.set_ylim(0, 100)
-    ax2.legend()
+    ax2.legend(fontsize=8)
     fig2.tight_layout()
     st.pyplot(fig2)
     plt.close(fig2)
@@ -200,16 +258,18 @@ with tab2:
     st.markdown("**Full factor table**")
 
     survive_col = f"survive_bonf_{m_sel}"
+    holm_col    = f"survive_holm_{m_sel}"
+    bh_col      = f"survive_bh_{m_sel}"
     by_col      = f"survive_by_{m_sel}"
     hc_col      = f"haircut_bonf_{m_sel}"
 
     display = results[[
         "t_stat", "p_value", "predictability", "year",
-        survive_col, by_col, hc_col,
+        survive_col, holm_col, bh_col, by_col, hc_col,
     ]].copy()
     display.columns = [
         "t-stat", "p-value", "predictability", "year",
-        f"Bonferroni (m={m_sel})", "BY (FDR 5%)", "Haircut (Bonf)",
+        f"Bonferroni (m={m_sel})", f"Holm (m={m_sel})", f"BH (m={m_sel})", f"BY (m={m_sel})", "Haircut (Bonf)",
     ]
     display = display.sort_values("t-stat", ascending=False)
     display["p-value"]       = display["p-value"].map("{:.4f}".format)

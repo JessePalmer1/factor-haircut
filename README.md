@@ -2,7 +2,7 @@
 
 > **Given that hundreds of equity factors have been tested, what t-statistic does a factor *actually* need to be believable — and how many published factors survive that bar?**
 
-Built an interactive factor "haircut" and Deflated Sharpe Ratio calculator (Python, NumPy/pandas, Streamlit) using Monte Carlo simulation with latent-factor correlation (Cholesky-induced) and fat-tailed returns plus Benjamini–Yekutieli false-discovery control, that showed **~48% of the 188 published equity factors** in the Chen–Zimmermann dataset fail to clear a Bonferroni-adjusted significance threshold (m = 600 assumed trials, t* = 3.93). Under the less conservative BY false-discovery rate control, **~21% fail**.
+Built an interactive factor "haircut" and Deflated Sharpe Ratio calculator (Python, NumPy/pandas, Streamlit) using Monte Carlo simulation with latent-factor correlation (Cholesky-induced) and fat-tailed returns (multivariate Student-t) plus four multiple-testing corrections — Bonferroni, Holm, Benjamini–Hochberg, Benjamini–Yekutieli — that showed **~48% of the 188 published equity factors** in the Chen–Zimmermann dataset fail to clear a Bonferroni-adjusted significance threshold (m = 600 assumed trials, t* = 3.93). Under the less conservative BY false-discovery rate control, **~31% fail**.
 
 ---
 
@@ -32,21 +32,25 @@ Opens at **http://localhost:8501**.
 - The haircut — the proportional Sharpe reduction implied by the correction
 - The Deflated Sharpe Ratio (DSR) and a skill verdict
 
-A plot shows the null max-statistic distribution (the expected best of m noise factors) with the factor and threshold marked.
+A plot shows the null max-statistic distribution — via Monte Carlo, not the iid asymptotic — with two interactive controls: an average pairwise correlation ρ̄ (mapped to a one-factor equicorrelation structure, Cholesky-induced) and a tail thickness ν for multivariate Student-t draws, with a Gaussian option. Raising ρ̄ shrinks the effective number of independent trials and visibly pulls the null distribution left; lowering ν fattens its right tail. The factor and Bonferroni threshold are marked on top. Only Bonferroni gets a per-test bar here — Holm, BH, and BY are sequential and their thresholds depend on the entire ranked p-value vector, so they aren't well-defined for a single user-entered t-stat.
 
-**Tab 2 — Published factors.** Loads the Chen–Zimmermann 188-factor dataset and shows survival under Bonferroni (sweeping m = 300 / 600 / 1000) and BY (FDR 5%), with a sortable table and sensitivity chart.
+**Tab 2 — Published factors.** Loads the Chen–Zimmermann 188-factor dataset and shows survival under all four corrections — Bonferroni, Holm (FWER), BH, BY (FDR 5%) — sweeping the assumed total trial count m = 300 / 600 / 1000, with a sortable table and a four-line sensitivity chart.
 
 ---
 
 ## Key findings
 
-| Assumed m | Bonferroni t* | Survivors (Bonf) | Survivors (BY) |
-|----------:|:-------------:|:----------------:|:--------------:|
-| 300       | 3.76          | 103 / 188 (55%)  | 148 / 188 (79%) |
-| 600       | 3.93          | 97 / 188 (52%)   | 148 / 188 (79%) |
-| 1000      | 4.06          | 92 / 188 (49%)   | 148 / 188 (79%) |
+| Assumed m | Bonferroni t* | Bonferroni      | Holm            | BH               | BY               |
+|----------:|:-------------:|:---------------:|:----------------:|:----------------:|:----------------:|
+| 300       | 3.76          | 103 / 188 (55%) | 105 / 188 (56%) | 174 / 188 (93%) | 135 / 188 (72%) |
+| 600       | 3.93          | 97 / 188 (52%)  | 100 / 188 (53%) | 166 / 188 (88%) | 129 / 188 (69%) |
+| 1000      | 4.06          | 92 / 188 (49%)  | 92 / 188 (49%)  | 150 / 188 (80%) | 122 / 188 (65%) |
 
-BY survival is stable across m because it controls FDR *within* the observed factors; Bonferroni's bar rises as m does. Classic factors like Momentum (t = 3.74) and Leverage (t = 3.93) sit right at the edge and fall out under Bonferroni at m ≥ 600.
+All four corrections use the same assumed m: the m − 188 unpublished tests are treated as p ≈ 1 (they sort below every observed factor and are never rejected — they only tighten each method's threshold, including BY's harmonic constant c(m)). This is the standard convention, but it's an assumption; realistically the abandoned factors are spread across (0, 1), including near-misses. Harvey–Liu–Zhu model this publication censoring directly rather than assuming it away.
+
+Survival declines with m for every method — including BY, which earlier (buggy) versions of this table showed as flat at 148/188 regardless of m, because the BY implementation ignored the assumed m entirely and only ever controlled FDR within the 188 observed factors. Fixing that produces the clean, expected result: a monotone gap between FWER control (Bonferroni, Holm) and FDR control (BH, BY), both of which respond to m, with FDR consistently less conservative. Classic factors like Momentum (t = 3.74) and Leverage (t = 3.93) sit right at the edge and fall out under Bonferroni at m ≥ 600.
+
+**On the m assumption itself:** correlation among factors reduces the *effective* number of independent trials, so a literal m = 600 over-corrects and 48% is best read as an upper bound on the true failure rate, not a point estimate. That bound is fairly robust, though — the exact Bonferroni threshold is forgiving to overestimates of m. Even a 10× reduction in effective trials, from 600 to 60, only moves t* from 3.93 to 3.34. You need fairly severe, broad-based correlation among the tested factors to meaningfully soften the headline number.
 
 ---
 

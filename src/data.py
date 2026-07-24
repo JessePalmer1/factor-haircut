@@ -113,9 +113,11 @@ def apply_corrections_sweep(
     For each m the Bonferroni implied threshold is:
         t* = Phi^{-1}(1 - alpha / (2m))
 
-    And BY's threshold for the k-th ranked p-value is tighter by c(m) = H_m.
-    Here we report the Bonferroni t* as the conservative headline bar, and run
-    BY directly on the observed p-values for the survive/reject column.
+    Holm, BH, and BY all take the same assumed m: the m - n_observed unpublished
+    tests are implicitly treated as p ~= 1 (they sort below every observed
+    p-value and are never rejected), so they only enter each method's threshold
+    through m — Holm's denominator, BH's denominator, and BY's denominator and
+    harmonic constant c(m).
 
     Parameters
     ----------
@@ -128,10 +130,11 @@ def apply_corrections_sweep(
     -------
     results : pd.DataFrame indexed by signal_name, with columns:
               t_stat, predictability, year, p_value,
-              and for each m: survive_bonf_{m}, survive_by_{m},
+              and for each m: survive_bonf_{m}, survive_holm_{m},
+                              survive_bh_{m}, survive_by_{m},
                               threshold_bonf_{m}, haircut_bonf_{m}
     """
-    from src.corrections import benjamini_yekutieli, implied_threshold
+    from src.corrections import holm, benjamini_hochberg, benjamini_yekutieli, implied_threshold
 
     if "p_value" not in df.columns:
         df = compute_pvals(df)
@@ -139,18 +142,19 @@ def apply_corrections_sweep(
     results = df.copy()
     pvals = df["p_value"].values
 
-    # BY is applied to only the observed factors (controls FDR within this set).
-    # Bonferroni uses the external m to account for all unpublished tests too.
-    reject_by = benjamini_yekutieli(pvals, alpha=alpha)
-
     for m in m_assumed_list:
         t_star = implied_threshold(m, alpha=alpha, method="bonferroni")
 
         # Bonferroni with external m: reject if p_i <= alpha / m_assumed
         reject_bonf = pvals <= alpha / m
+        reject_holm = holm(pvals, alpha=alpha, m=m)
+        reject_bh   = benjamini_hochberg(pvals, alpha=alpha, m=m)
+        reject_by   = benjamini_yekutieli(pvals, alpha=alpha, m=m)
 
         results[f"threshold_bonf_{m}"] = t_star
         results[f"survive_bonf_{m}"]   = reject_bonf
+        results[f"survive_holm_{m}"]   = reject_holm
+        results[f"survive_bh_{m}"]     = reject_bh
         results[f"survive_by_{m}"]     = reject_by
         results[f"haircut_bonf_{m}"]   = (1 - t_star / df["t_stat"]).clip(lower=0)
 
